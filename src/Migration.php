@@ -96,7 +96,50 @@ class Migration extends Expression
                 continue;
             }
 
-            $this->field($field->actual ?: $field->short_name);  // todo add options here
+            $options= [];
+            switch($field->type)
+            {
+	            case 'int':
+				case 'integer':
+		            $options = ['type' => 'INT', 'len' => 11];
+				break;
+
+	            case 'str':
+	            case 'string':
+	                $options = ['type' => 'VARCHAR', 'len' => 255];
+				break;
+
+	            case 'float':
+	            case 'money':
+		            $options = ['type' => 'FLOAT', 'len' => 11,2];
+	           	break;
+
+	            case 'date':
+		            $options = ['type' => 'DATE'];
+				break;
+
+	            case 'datetime':
+		            $options = ['type' => 'DATETIME'];
+				break;
+
+	            case 'time':
+		            $options = ['type' => 'TIME'];
+				break;
+
+
+	            case 'text':
+	            case 'array':
+	            case 'object':
+		            $options = ['type' => 'TEXT'];
+				break;
+
+	            case 'boolean':
+	            case 'bool':
+	                $options = ['type' => 'TINYINT','len'=>1];
+	            break;
+            }
+            
+            $this->field($field->actual ?: $field->short_name,$options);  // todo add options here
         }
 
         return $m;
