@@ -1,4 +1,4 @@
-<?php.
+<?php
 
 namespace atk4\schema\Migration;
 
@@ -26,12 +26,7 @@ class PgSQL extends \atk4\schema\Migration
     ];
 
     /**
-     * Return database table descriptions.
-     * DB engine specific.
-     *
-     * @param string $table
-     *
-     * @return array
+     * @inheritDoc
      */
     public function describeTable($table)
     {

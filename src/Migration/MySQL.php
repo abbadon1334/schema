@@ -28,13 +28,9 @@ class MySQL extends \atk4\schema\Migration
         'longblob'  => ['text'],
     ];
 
+
     /**
-     * Return database table descriptions.
-     * DB engine specific.
-     *
-     * @param string $table
-     *
-     * @return array
+     * @inheritDoc
      */
     public function describeTable($table)
     {

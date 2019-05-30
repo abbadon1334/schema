@@ -8,12 +8,7 @@ class SQLite extends \atk4\schema\Migration
     public $primary_key_expr = 'integer primary key autoincrement';
 
     /**
-     * Return database table descriptions.
-     * DB engine specific.
-     *
-     * @param string $table
-     *
-     * @return array
+     * @inheritDoc
      */
     public function describeTable($table)
     {

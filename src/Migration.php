@@ -3,12 +3,12 @@
 namespace atk4\schema;
 
 use atk4\core\Exception;
-use atk4\Data\Model;
+use atk4\data\Model;
 use atk4\data\Persistence;
 use atk4\dsql\Connection;
 use atk4\dsql\Expression;
 
-class Migration extends Expression
+abstract class Migration extends Expression
 {
     /** @var string Expression mode. See $templates. */
     public $mode = 'create';
@@ -44,7 +44,7 @@ class Migration extends Expression
         'float'     => ['decimal', 16, 6],
         'date'      => ['date'],
         'datetime'  => ['datetime'],
-        'time'      => ['varchar', 8],
+        'time'      => ['time'],
         'text'      => ['text'],
         'array'     => ['text'],
         'object'    => ['text'],
@@ -62,6 +62,7 @@ class Migration extends Expression
         'numeric'   => ['float'],
         'date'      => ['date'],
         'datetime'  => ['datetime'],
+        'time'      => ['time'],
         'timestamp' => ['datetime'],
         'text'      => ['text'],
     ];
@@ -76,6 +77,7 @@ class Migration extends Expression
      * @param array                        $params
      *
      * @return Migration Subclass
+     * @throws Exception
      */
     public static function getMigration($source, $params = [])
     {
@@ -103,6 +105,9 @@ class Migration extends Expression
      * Static method to extract DB driver from Connection, Persistence or Model.
      *
      * @param Connection|Persistence|Model $source
+     *
+     * @return Model|Persistence|Connection|\PDO
+     * @throws Exception
      */
     public static function getConnection($source)
     {
@@ -112,7 +117,7 @@ class Migration extends Expression
             return $source->connection;
         } elseif (
             $source instanceof Model
-            && $source->persistence
+            // && $source->persistence // not needed
             && ($source->persistence instanceof Persistence\SQL)
         ) {
             return $source->persistence->connection;
@@ -129,6 +134,9 @@ class Migration extends Expression
      *
      * @param Connection|Persistence|Model $source
      * @param array                        $params
+     *
+     * @throws Exception
+     * @throws \atk4\dsql\Exception
      */
     public function __construct($source, $params = [])
     {
@@ -141,6 +149,8 @@ class Migration extends Expression
      * Sets source of migration.
      *
      * @param Connection|Persistence|Model $source
+     *
+     * @throws Exception
      */
     public function setSource($source)
     {
@@ -148,7 +158,7 @@ class Migration extends Expression
 
         if (
             $source instanceof Model
-            && $source->persistence
+            //&& $source->persistence not needed
             && ($source->persistence instanceof Persistence\SQL)
         ) {
             $this->setModel($source);
@@ -161,6 +171,7 @@ class Migration extends Expression
      * @param Model $m
      *
      * @return Model
+     * @throws Exception
      */
     public function setModel(Model $m)
     {
@@ -197,6 +208,7 @@ class Migration extends Expression
      * @param string $mode Template name
      *
      * @return $this
+     * @throws Exception
      */
     public function mode($mode)
     {
@@ -214,6 +226,8 @@ class Migration extends Expression
      * Create new table.
      *
      * @return $this
+     * @throws Exception
+     * @throws \atk4\dsql\Exception
      */
     public function create()
     {
@@ -226,6 +240,8 @@ class Migration extends Expression
      * Drop table.
      *
      * @return $this
+     * @throws Exception
+     * @throws \atk4\dsql\Exception
      */
     public function drop()
     {
@@ -238,6 +254,8 @@ class Migration extends Expression
      * Alter table.
      *
      * @return $this
+     * @throws Exception
+     * @throws \atk4\dsql\Exception
      */
     public function alter()
     {
@@ -250,6 +268,8 @@ class Migration extends Expression
      * Rename table.
      *
      * @return $this
+     * @throws Exception
+     * @throws \atk4\dsql\Exception
      */
     public function rename()
     {
@@ -263,11 +283,17 @@ class Migration extends Expression
      * If table does not exist, will invoke ->create. If table does exist, then it will execute
      * methods ->newField(), ->dropField() or ->alterField() as needed, then call ->alter().
      *
+     * @param bool $dry_run
+     *
+     * @param int  $reportType
+     *
      * @return string Returns short textual info for logging purposes
+     * @throws Exception
+     * @throws \atk4\dsql\Exception
      */
-    public function migrate()
+    public function migrate($dry_run=false,$reportType=MigrationReport::REPORT_TYPE_SIMPLE)
     {
-        $changes = $added = $altered = $dropped = 0;
+        $changes = new MigrationReport($this,$reportType);
 
         // We use this to read fields from SQL
         $migration2 = new static($this->connection);
@@ -291,20 +317,21 @@ class Migration extends Expression
 
             if (isset($old[$field])) {
 
+                $oldType = $old[$field]['type'] ?? null;
+                $newType = $options['type'] ?? null;
+
                 // compare options and if needed alter field
                 // @todo add more options here like 'len'
-                if (array_key_exists('type', $old[$field]) && array_key_exists('type', $options) && $old[$field]['type'] != $options['type']) {
+                if ($oldType != $newType) {
                     $this->alterField($field, $options);
-                    $altered++;
-                    $changes++;
+                    $changes->addFieldAltered($field,$options,$old[$field]);
                 }
 
                 unset($old[$field]);
             } else {
                 // new field, so let's just add it
                 $this->newField($field, $options);
-                $added++;
-                $changes++;
+                $changes->addFieldAdded($field,$options);
             }
         }
 
@@ -316,19 +343,14 @@ class Migration extends Expression
             }
 
             $this->dropField($field);
-            $dropped++;
-            $changes++;
+            $changes->addFieldDropped($field,$options);
         }
 
-        if ($changes) {
-            $this->alter();
-
-            return 'added '.$added.' field'.($added % 10 == 1 ? '' : 's').', '.
-                'changed '.$altered.' field'.($altered % 10 == 1 ? '' : 's').' and '.
-                'deleted '.$dropped.' field'.($dropped % 10 == 1 ? '' : 's');
+        if ($changes->hasChanges()) {
+            if(!$dry_run) $this->alter();
         }
 
-        return 'no changes';
+        return $changes->report();
     }
 
     /**
@@ -401,6 +423,7 @@ class Migration extends Expression
      * @param array  $options
      *
      * @return $this
+     * @throws Exception
      */
     public function newField($field, $options = [])
     {
@@ -416,6 +439,7 @@ class Migration extends Expression
      * @param array  $options
      *
      * @return $this
+     * @throws Exception
      */
     public function alterField($field, $options = [])
     {
@@ -430,6 +454,7 @@ class Migration extends Expression
      * @param string $field
      *
      * @return $this
+     * @throws Exception
      */
     public function dropField($field)
     {
@@ -442,16 +467,11 @@ class Migration extends Expression
      * Return database table descriptions.
      * DB engine specific.
      *
-     * @todo Maybe convert to abstract function
-     *
      * @param string $table
      *
      * @return array
      */
-    public function describeTable($table)
-    {
-        return $this->connection->expr('pragma table_info({})', [$table])->get();
-    }
+    abstract public function describeTable($table);
 
     /**
      * Convert SQL field types to Agile Data field types.
@@ -495,6 +515,7 @@ class Migration extends Expression
      * @param string $table
      *
      * @return bool
+     * @throws Exception
      */
     public function importTable($table)
     {
@@ -532,7 +553,7 @@ class Migration extends Expression
     /**
      * Sets old table name.
      *
-     * @param string $table
+     * @param string $old_table
      *
      * @return $this
      */
@@ -550,6 +571,7 @@ class Migration extends Expression
      * @param array  $options
      *
      * @return $this
+     * @throws Exception
      */
     public function field($name, $options = [])
     {
@@ -584,6 +606,8 @@ class Migration extends Expression
      * Render "field" template.
      *
      * @return string
+     * @throws Exception
+     * @throws \atk4\dsql\Exception
      */
     public function _render_field()
     {
@@ -639,6 +663,8 @@ class Migration extends Expression
      * @param string $what  Where to set it - table|field
      * @param string $alias Alias name
      * @param mixed  $value Value to set in args array
+     *
+     * @throws Exception
      */
     protected function _set_args($what, $alias, $value)
     {
@@ -657,5 +683,64 @@ class Migration extends Expression
 
             $this->args[$what][$alias] = $value;
         }
+    }
+
+
+    /**
+     * Create Model Class php file content based on storage table
+     *
+     * @param string $tableName
+     * @param string $futureModelName
+     * @param string $id_field
+     * @param string $ClassNamespace
+     *
+     * @return string
+     * @throws Exception
+     */
+    public function createModelFromTable($tableName, $futureModelName, $id_field = "id", $ClassNamespace = 'Your\Project\Models')
+    {
+
+        $PHP = <<<PHP
+<?php
+
+namespace {$ClassNamespace};
+
+class {$futureModelName} extends \atk4\data\Model
+{
+    /** @var string \$table table of the model */
+    public \$table = "{$tableName}";{__ID_FIELD__}
+    
+    public function init()
+    {
+        parent::init();
+{__FIELDS__}
+    }
+}
+
+PHP;
+
+        $this->importTable($tableName);
+
+        $replace = [
+            '{__ID_FIELD__}' => $id_field === 'id' ? '' : PHP_EOL . '    /** @var string $id_field custom field id of the model */' . PHP_EOL . '        public $id_field = "' . $id_field . '"',
+            '{__FIELDS__}' => ''
+        ];
+
+        foreach($this->args['field'] as $fieldName => $options)
+        {
+            if($id_field==$fieldName) continue;
+
+            $type = $options['type'];
+
+            $replace['{__FIELDS__}'].= PHP_EOL . '        $this->addField("' . $fieldName . '"';
+
+            if($type !== null) {
+                $replace['{__FIELDS__}'] .= ', ["type"=>"' . $type . '"]';
+            }
+
+            $replace['{__FIELDS__}'].= ');';
+        }
+
+        return str_replace(array_keys($replace),array_values($replace),$PHP);
     }
 }

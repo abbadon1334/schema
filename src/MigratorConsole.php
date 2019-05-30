@@ -2,19 +2,24 @@
 
 namespace atk4\schema;
 
+use atk4\ui\Console;
+use atk4\ui\Exception;
+
 /**
  * Makes sure your database is adjusted for one or several models,
  * that you specify.
  */
-class MigratorConsole extends \atk4\ui\Console
+class MigratorConsole extends Console
 {
     /** @var string Name of migrator class to use */
-    public $migrator_class = Migration\Mysql::class;
+    public $migrator_class = Migration\MySQL::class;
 
     /**
      * Provided with array of models, perform migration for each of them.
      *
      * @param array $models
+     *
+     * @throws Exception
      */
     public function migrateModels($models)
     {

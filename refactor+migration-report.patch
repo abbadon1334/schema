@@ -1,0 +1,757 @@
+Index: composer.json
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- composer.json	(revision 01024967ecdea6adab5339650037c72578ebf139)
++++ composer.json	(date 1559213181000)
+@@ -16,7 +16,8 @@
+     ],
+     "require": {
+         "php": ">=7.0.0",
+-        "atk4/dsql": "dev-develop"
++        "atk4/dsql": "dev-develop",
++        "ext-pdo": "*"
+     },
+     "suggest": {
+         "atk4/data": "*",
+@@ -32,11 +33,13 @@
+         "codeclimate/php-test-reporter": "*"
+     },
+     "autoload": {
+-        "psr-4": {"atk4\\schema\\":"src/"}
++        "psr-4": {
++            "atk4\\schema\\": "src/"
++        }
+     },
+     "autoload-dev": {
+         "psr-4": {
+-          "atk4\\schema\\tests\\":"tests/"
++            "atk4\\schema\\tests\\": "tests/"
+         }
+     }
+ }
+Index: src/Migration/MySQL.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Migration/MySQL.php	(revision 01024967ecdea6adab5339650037c72578ebf139)
++++ src/Migration/MySQL.php	(date 1559242747000)
+@@ -28,13 +28,9 @@
+         'longblob'  => ['text'],
+     ];
+ 
++
+     /**
+-     * Return database table descriptions.
+-     * DB engine specific.
+-     *
+-     * @param string $table
+-     *
+-     * @return array
++     * @inheritDoc
+      */
+     public function describeTable($table)
+     {
+Index: src/Migration/SQLite.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Migration/SQLite.php	(revision 01024967ecdea6adab5339650037c72578ebf139)
++++ src/Migration/SQLite.php	(date 1559242715000)
+@@ -8,12 +8,7 @@
+     public $primary_key_expr = 'integer primary key autoincrement';
+ 
+     /**
+-     * Return database table descriptions.
+-     * DB engine specific.
+-     *
+-     * @param string $table
+-     *
+-     * @return array
++     * @inheritDoc
+      */
+     public function describeTable($table)
+     {
+Index: src/MigrationReport.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/MigrationReport.php	(date 1559244336000)
++++ src/MigrationReport.php	(date 1559244336000)
+@@ -0,0 +1,209 @@
++<?php
++
++namespace atk4\schema;
++
++/**
++ * Class MigrationChange
++ */
++class MigrationReport
++{
++    const REPORT_TYPE_NULL   = 0;
++    const REPORT_TYPE_SIMPLE = 1;
++    const REPORT_TYPE_DETAIL = 2;
++    const REPORT_TYPE_ARRAY  = 3;
++
++    /**
++     * @var int
++     */
++    private $report_type;
++
++    /**
++     * Track if change
++     *
++     * @var bool
++     */
++    private $changed = false;
++    /**
++     *
++     * @var array<string,array>
++     */
++    private $added = [];
++    /**
++     * @var array<string,array>
++     */
++    private $dropped = [];
++    /**
++     * @var array<string,array>
++     */
++    private $altered = [];
++
++    /**
++     * Table name
++     *
++     * @var string
++     */
++    private $table;
++
++    /**
++     * Old Table name
++     * @TODO Track Table rename - needed
++     *
++     * @var string
++     */
++    private $old_table;
++
++    /**
++     * Migration Object
++     * @var Migration
++     */
++    private $migration;
++
++    /**
++     * MigrationReport constructor.
++     *
++     * @param Migration $migration
++     * @param int       $report_type
++     */
++    public function __construct($migration, $report_type = self::REPORT_TYPE_SIMPLE)
++    {
++        $this->migration   = $migration;
++        $this->table       = $migration['table'];
++        $this->old_table   = $migration['old_table'] ?? null;
++        $this->report_type = $report_type;
++    }
++
++    /**
++     * @param string $fieldName
++     * @param array  $options
++     */
++    public function addFieldAdded($fieldName, $options)
++    {
++        $this->added[$fieldName] = $options;
++        $this->changed           = true;
++    }
++
++    /**
++     * @param string $fieldName
++     * @param array  $options
++     * @param array  $oldOptions
++     */
++    public function addFieldAltered($fieldName, $options, $oldOptions)
++    {
++        $this->altered[$fieldName] = ['old' => $oldOptions, 'new' => $options];
++        $this->changed             = true;
++    }
++
++    /**
++     * @param string $fieldName
++     * @param array  $options
++     */
++    public function addFieldDropped($fieldName, $options)
++    {
++        $this->dropped[$fieldName] = $options;
++        $this->changed             = true;
++    }
++
++    /**
++     * @return bool
++     */
++    public function hasChanges()
++    {
++        return $this->changed;
++    }
++
++    /**
++     * Return a report
++     *
++     * @return array|string|null
++     */
++    public function report()
++    {
++        switch ($this->report_type) {
++            case self::REPORT_TYPE_NULL:
++                return null;
++                break;
++
++            case self::REPORT_TYPE_SIMPLE:
++                return $this->getReportSimple();
++                break;
++
++            case self::REPORT_TYPE_DETAIL:
++                return $this->getReportDetailed();
++                break;
++
++            case self::REPORT_TYPE_ARRAY:
++                return $this->getReportAsArray();
++                break;
++        }
++    }
++
++    /**
++     * @return string
++     */
++    private function getReportSimple()
++    {
++        $output   = [];
++        $output[] = 'ON TABLE : ' . $this->table . ' => ';
++
++        if (!$this->changed) {
++            $output[] = 'no changes';
++        } else {
++            $count    = count($this->added);
++            $output[] = 'added ' . $count . ' field' . ($count === 1 ? '' : 's') . ', ';
++            $count    = count($this->altered);
++            $output[] = 'altered ' . $count . ' field' . ($count === 1 ? '' : 's') . ' and ';
++            $count    = count($this->dropped);
++            $output[] = 'dropped ' . $count . ' field' . ($count === 1 ? '' : 's');
++        }
++
++        return implode('', $output);
++    }
++
++    /**
++     * @return string
++     */
++    private function getReportDetailed()
++    {
++
++        $output   = [];
++
++        $output[] = 'TABLE : ' . $this->table;
++        $output[] = '################################';
++
++        if (!$this->changed) {
++            $output[] = 'no changes';
++        } else {
++
++            $output[] = 'ADDED (' . count($this->added) . ')';
++            foreach ($this->added as $fieldName => $options) {
++                $output[] = $fieldName;
++            }
++
++            $output[] = 'ALTERED (' . count($this->altered) . ')';
++            foreach ($this->altered as $fieldName => $options) {
++                $oldType  = $options['old']['type'] ?? 'NULL';
++                $newType  = $options['new']['type'] ?? 'NULL';
++                $output[] = $fieldName . ' Type : ' . $oldType . ' => ' . $newType;
++            }
++
++            $output[] = 'DROPPED (' . count($this->dropped) . ')';
++            foreach ($this->dropped as $fieldName => $options) {
++                $output[] = $fieldName;
++            }
++        }
++
++        return implode(PHP_EOL, $output);
++    }
++
++    /**
++     * @return array
++     */
++    private function getReportAsArray()
++    {
++        return [
++            'added'   => $this->added,
++            'altered' => $this->altered,
++            'dropped' => $this->dropped
++        ];
++    }
++}
+\ No newline at end of file
+Index: src/MigratorConsole.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/MigratorConsole.php	(revision 01024967ecdea6adab5339650037c72578ebf139)
++++ src/MigratorConsole.php	(date 1559244324000)
+@@ -2,19 +2,24 @@
+ 
+ namespace atk4\schema;
+ 
++use atk4\ui\Console;
++use atk4\ui\Exception;
++
+ /**
+  * Makes sure your database is adjusted for one or several models,
+  * that you specify.
+  */
+-class MigratorConsole extends \atk4\ui\Console
++class MigratorConsole extends Console
+ {
+     /** @var string Name of migrator class to use */
+-    public $migrator_class = Migration\Mysql::class;
++    public $migrator_class = Migration\MySQL::class;
+ 
+     /**
+      * Provided with array of models, perform migration for each of them.
+      *
+      * @param array $models
++     *
++     * @throws Exception
+      */
+     public function migrateModels($models)
+     {
+Index: src/Migration/PgSQL.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Migration/PgSQL.php	(revision 01024967ecdea6adab5339650037c72578ebf139)
++++ src/Migration/PgSQL.php	(date 1559242739000)
+@@ -1,4 +1,4 @@
+-<?php.
++<?php
+ 
+ namespace atk4\schema\Migration;
+ 
+@@ -26,12 +26,7 @@
+     ];
+ 
+     /**
+-     * Return database table descriptions.
+-     * DB engine specific.
+-     *
+-     * @param string $table
+-     *
+-     * @return array
++     * @inheritDoc
+      */
+     public function describeTable($table)
+     {
+Index: src/Migration/Oracle.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Migration/Oracle.php	(revision 01024967ecdea6adab5339650037c72578ebf139)
++++ src/Migration/Oracle.php	(date 1559242849000)
+@@ -2,7 +2,13 @@
+ 
+ namespace atk4\schema\Migration;
+ 
+-// NOT IMPLEMENTED !!!
++use atk4\ui\Exception;
++
++/**
++ * NOT IMPLEMENTED !!!
++ *
++ * @TODO IMPLEMENT Oracle Migration
++ */
+ class Oracle extends \atk4\schema\Migration
+ {
+     /** @var array use this array in extended classes to overwrite or extend values of default mapping */
+@@ -15,4 +21,12 @@
+     public $mapToAgile = [
+         'date'      => ['datetime'],
+     ];
++
++    /**
++     * @inheritDoc
++     */
++    public function describeTable($table)
++    {
++        throw new Exception('NOT IMPLEMENTED YET');
++    }
+ }
+Index: src/Migration.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- src/Migration.php	(revision 01024967ecdea6adab5339650037c72578ebf139)
++++ src/Migration.php	(date 1559243540000)
+@@ -3,12 +3,12 @@
+ namespace atk4\schema;
+ 
+ use atk4\core\Exception;
+-use atk4\Data\Model;
++use atk4\data\Model;
+ use atk4\data\Persistence;
+ use atk4\dsql\Connection;
+ use atk4\dsql\Expression;
+ 
+-class Migration extends Expression
++abstract class Migration extends Expression
+ {
+     /** @var string Expression mode. See $templates. */
+     public $mode = 'create';
+@@ -44,7 +44,7 @@
+         'float'     => ['decimal', 16, 6],
+         'date'      => ['date'],
+         'datetime'  => ['datetime'],
+-        'time'      => ['varchar', 8],
++        'time'      => ['time'],
+         'text'      => ['text'],
+         'array'     => ['text'],
+         'object'    => ['text'],
+@@ -62,6 +62,7 @@
+         'numeric'   => ['float'],
+         'date'      => ['date'],
+         'datetime'  => ['datetime'],
++        'time'      => ['time'],
+         'timestamp' => ['datetime'],
+         'text'      => ['text'],
+     ];
+@@ -76,6 +77,7 @@
+      * @param array                        $params
+      *
+      * @return Migration Subclass
++     * @throws Exception
+      */
+     public static function getMigration($source, $params = [])
+     {
+@@ -103,6 +105,9 @@
+      * Static method to extract DB driver from Connection, Persistence or Model.
+      *
+      * @param Connection|Persistence|Model $source
++     *
++     * @return Model|Persistence|Connection|\PDO
++     * @throws Exception
+      */
+     public static function getConnection($source)
+     {
+@@ -112,7 +117,7 @@
+             return $source->connection;
+         } elseif (
+             $source instanceof Model
+-            && $source->persistence
++            // && $source->persistence // not needed
+             && ($source->persistence instanceof Persistence\SQL)
+         ) {
+             return $source->persistence->connection;
+@@ -129,6 +134,9 @@
+      *
+      * @param Connection|Persistence|Model $source
+      * @param array                        $params
++     *
++     * @throws Exception
++     * @throws \atk4\dsql\Exception
+      */
+     public function __construct($source, $params = [])
+     {
+@@ -141,6 +149,8 @@
+      * Sets source of migration.
+      *
+      * @param Connection|Persistence|Model $source
++     *
++     * @throws Exception
+      */
+     public function setSource($source)
+     {
+@@ -148,7 +158,7 @@
+ 
+         if (
+             $source instanceof Model
+-            && $source->persistence
++            //&& $source->persistence not needed
+             && ($source->persistence instanceof Persistence\SQL)
+         ) {
+             $this->setModel($source);
+@@ -161,6 +171,7 @@
+      * @param Model $m
+      *
+      * @return Model
++     * @throws Exception
+      */
+     public function setModel(Model $m)
+     {
+@@ -197,6 +208,7 @@
+      * @param string $mode Template name
+      *
+      * @return $this
++     * @throws Exception
+      */
+     public function mode($mode)
+     {
+@@ -214,6 +226,8 @@
+      * Create new table.
+      *
+      * @return $this
++     * @throws Exception
++     * @throws \atk4\dsql\Exception
+      */
+     public function create()
+     {
+@@ -226,6 +240,8 @@
+      * Drop table.
+      *
+      * @return $this
++     * @throws Exception
++     * @throws \atk4\dsql\Exception
+      */
+     public function drop()
+     {
+@@ -238,6 +254,8 @@
+      * Alter table.
+      *
+      * @return $this
++     * @throws Exception
++     * @throws \atk4\dsql\Exception
+      */
+     public function alter()
+     {
+@@ -250,6 +268,8 @@
+      * Rename table.
+      *
+      * @return $this
++     * @throws Exception
++     * @throws \atk4\dsql\Exception
+      */
+     public function rename()
+     {
+@@ -263,11 +283,17 @@
+      * If table does not exist, will invoke ->create. If table does exist, then it will execute
+      * methods ->newField(), ->dropField() or ->alterField() as needed, then call ->alter().
+      *
++     * @param bool $dry_run
++     *
++     * @param int  $reportType
++     *
+      * @return string Returns short textual info for logging purposes
++     * @throws Exception
++     * @throws \atk4\dsql\Exception
+      */
+-    public function migrate()
++    public function migrate($dry_run=false,$reportType=MigrationReport::REPORT_TYPE_SIMPLE)
+     {
+-        $changes = $added = $altered = $dropped = 0;
++        $changes = new MigrationReport($this,$reportType);
+ 
+         // We use this to read fields from SQL
+         $migration2 = new static($this->connection);
+@@ -291,20 +317,21 @@
+ 
+             if (isset($old[$field])) {
+ 
++                $oldType = $old[$field]['type'] ?? null;
++                $newType = $options['type'] ?? null;
++
+                 // compare options and if needed alter field
+                 // @todo add more options here like 'len'
+-                if (array_key_exists('type', $old[$field]) && array_key_exists('type', $options) && $old[$field]['type'] != $options['type']) {
++                if ($oldType != $newType) {
+                     $this->alterField($field, $options);
+-                    $altered++;
+-                    $changes++;
++                    $changes->addFieldAltered($field,$options,$old[$field]);
+                 }
+ 
+                 unset($old[$field]);
+             } else {
+                 // new field, so let's just add it
+                 $this->newField($field, $options);
+-                $added++;
+-                $changes++;
++                $changes->addFieldAdded($field,$options);
+             }
+         }
+ 
+@@ -316,19 +343,14 @@
+             }
+ 
+             $this->dropField($field);
+-            $dropped++;
+-            $changes++;
++            $changes->addFieldDropped($field,$options);
+         }
+ 
+-        if ($changes) {
+-            $this->alter();
+-
+-            return 'added '.$added.' field'.($added % 10 == 1 ? '' : 's').', '.
+-                'changed '.$altered.' field'.($altered % 10 == 1 ? '' : 's').' and '.
+-                'deleted '.$dropped.' field'.($dropped % 10 == 1 ? '' : 's');
++        if ($changes->hasChanges()) {
++            if(!$dry_run) $this->alter();
+         }
+ 
+-        return 'no changes';
++        return $changes->report();
+     }
+ 
+     /**
+@@ -401,6 +423,7 @@
+      * @param array  $options
+      *
+      * @return $this
++     * @throws Exception
+      */
+     public function newField($field, $options = [])
+     {
+@@ -416,6 +439,7 @@
+      * @param array  $options
+      *
+      * @return $this
++     * @throws Exception
+      */
+     public function alterField($field, $options = [])
+     {
+@@ -430,6 +454,7 @@
+      * @param string $field
+      *
+      * @return $this
++     * @throws Exception
+      */
+     public function dropField($field)
+     {
+@@ -442,16 +467,11 @@
+      * Return database table descriptions.
+      * DB engine specific.
+      *
+-     * @todo Maybe convert to abstract function
+-     *
+      * @param string $table
+      *
+      * @return array
+      */
+-    public function describeTable($table)
+-    {
+-        return $this->connection->expr('pragma table_info({})', [$table])->get();
+-    }
++    abstract public function describeTable($table);
+ 
+     /**
+      * Convert SQL field types to Agile Data field types.
+@@ -495,6 +515,7 @@
+      * @param string $table
+      *
+      * @return bool
++     * @throws Exception
+      */
+     public function importTable($table)
+     {
+@@ -532,7 +553,7 @@
+     /**
+      * Sets old table name.
+      *
+-     * @param string $table
++     * @param string $old_table
+      *
+      * @return $this
+      */
+@@ -550,6 +571,7 @@
+      * @param array  $options
+      *
+      * @return $this
++     * @throws Exception
+      */
+     public function field($name, $options = [])
+     {
+@@ -584,6 +606,8 @@
+      * Render "field" template.
+      *
+      * @return string
++     * @throws Exception
++     * @throws \atk4\dsql\Exception
+      */
+     public function _render_field()
+     {
+@@ -639,6 +663,8 @@
+      * @param string $what  Where to set it - table|field
+      * @param string $alias Alias name
+      * @param mixed  $value Value to set in args array
++     *
++     * @throws Exception
+      */
+     protected function _set_args($what, $alias, $value)
+     {
+@@ -658,4 +684,63 @@
+             $this->args[$what][$alias] = $value;
+         }
+     }
++
++
++    /**
++     * Create Model Class php file content based on storage table
++     *
++     * @param string $tableName
++     * @param string $futureModelName
++     * @param string $id_field
++     * @param string $ClassNamespace
++     *
++     * @return string
++     * @throws Exception
++     */
++    public function createModelFromTable($tableName, $futureModelName, $id_field = "id", $ClassNamespace = 'Your\Project\Models')
++    {
++
++        $PHP = <<<PHP
++<?php
++
++namespace {$ClassNamespace};
++
++class {$futureModelName} extends \atk4\data\Model
++{
++    /** @var string \$table table of the model */
++    public \$table = "{$tableName}";{__ID_FIELD__}
++    
++    public function init()
++    {
++        parent::init();
++{__FIELDS__}
++    }
++}
++
++PHP;
++
++        $this->importTable($tableName);
++
++        $replace = [
++            '{__ID_FIELD__}' => $id_field === 'id' ? '' : PHP_EOL . '    /** @var string $id_field custom field id of the model */' . PHP_EOL . '        public $id_field = "' . $id_field . '"',
++            '{__FIELDS__}' => ''
++        ];
++
++        foreach($this->args['field'] as $fieldName => $options)
++        {
++            if($id_field==$fieldName) continue;
++
++            $type = $options['type'];
++
++            $replace['{__FIELDS__}'].= PHP_EOL . '        $this->addField("' . $fieldName . '"';
++
++            if($type !== null) {
++                $replace['{__FIELDS__}'] .= ', ["type"=>"' . $type . '"]';
++            }
++
++            $replace['{__FIELDS__}'].= ');';
++        }
++
++        return str_replace(array_keys($replace),array_values($replace),$PHP);
++    }
+ }

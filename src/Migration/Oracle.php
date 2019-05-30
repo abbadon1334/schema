@@ -2,7 +2,13 @@
 
 namespace atk4\schema\Migration;
 
-// NOT IMPLEMENTED !!!
+use atk4\ui\Exception;
+
+/**
+ * NOT IMPLEMENTED !!!
+ *
+ * @TODO IMPLEMENT Oracle Migration
+ */
 class Oracle extends \atk4\schema\Migration
 {
     /** @var array use this array in extended classes to overwrite or extend values of default mapping */
@@ -15,4 +21,12 @@ class Oracle extends \atk4\schema\Migration
     public $mapToAgile = [
         'date'      => ['datetime'],
     ];
+
+    /**
+     * @inheritDoc
+     */
+    public function describeTable($table)
+    {
+        throw new Exception('NOT IMPLEMENTED YET');
+    }
 }
